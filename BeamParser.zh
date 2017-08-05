@@ -1,0 +1,1244 @@
+import "std.zh" //Keyboard.zh is included
+
+/* Beam=Style TBA Text Parser
+   I hope to support the full Beam 'Inglish' with this, eventually, but
+   if not, it should be a modest text parser tor TBA style quests, or even
+   normal quests where the developer can read strings to find command keywords and
+   act on them.
+
+   At present, there is a five WORD stack, and a heap that can support caching
+   commands, offsetting them, and acting on them later. 
+
+   This is not fully-considered, as Beam's 'Inglish' parser supported conjunctions
+   and prepositions. Adding those, or at least the logic for those will require a 
+   larger stack, and some unconventional memory management.
+   
+   Beam's maximum parse string length was 128-characters.
+   
+   Command procedure:
+   
+   User types commands to the commandline[]
+   Scan the commands, each time we hit a space, determine what command it is, and
+   add its numeric value to the heap.
+   When we reach tne edn of the line, scan the heap
+   place instructions onto the stack, ignoring preopositions until we hit an AND instruction
+   When we hit an AND instruction, process the stack instructions, pop them off
+   then return to the heap, and repeat until we are out of instructions. 
+   
+   When we are out of instructions, pop off the stack, clear the heap, and end the turn.
+*/
+
+//int instructions[214747];
+
+int GAMERAM[214747]; //Holds values of the game engine. 
+//need arrays and getptr for each typed array, too. 
+
+int TURN; //remember to handle rollover
+
+void IncrementTurn(){ TURN += 2;}
+void BattleTurn(){ TURN++; }
+bool PlayerTurn() { return ( TURN % 2 == 0 ); }
+bool EnemyTurn() { return  ( TURN % 2 != 0 ) ; }
+
+
+int tempbuffer[55];
+int outputbuffers[10];
+
+void OutputText(int bufferID, int outoutID){
+	//copy text from input to output
+}
+
+void GameText(){
+	//string processor
+
+}
+
+//v0.22, new
+
+//Unmeric instruction values to match cases.
+int HEAP[32]; //What is the maximum number of instructions with conjunctions?
+int STACK[32]; //What is the maximum number of instructions, without conjunctions?
+int ram[64]; //RAM
+
+//String buffers
+int CURWORD[18]; //Current operational instruction WORD, for when converting a word to an instruction. 
+int commandline[129];//128 chars max on the line, plus NULL.
+int commandlineoverlay[129]; //128 + NULL
+
+int command[18]; //Holds the present action command. Deprecated by stack procedure. 
+
+int VARS[256]; //holds code support variables.
+int timer = KEY_DELAY; bool cantype = true;
+bool ShiftKey; int q; 
+int temp_q; int cursorblink = 0;
+int ram[32];
+//int curbuffer = 0;
+
+//Vars indices:
+const int RAM_q = 0;
+
+
+
+/*
+int stack[5]; //holds the four possible command components
+int heap[32]; //May not need it, but it might be good for something.
+int ADJ_NOUN[36]; //buffer for a combined adjective and noun pairing. 
+	//Used to compare the names of screen items, and enemies. 
+	//36 chars = 17+17+space+NULL Probably too long for any pair, but that is a minor waste. 
+*/
+
+int buffer[214747]; //={CURSOR_POINT_CHAR, CHAR_SPACE}; 
+int bufferoverlay[214747]; //handles the cursor.
+
+
+//Perhaps a SAY string?
+
+//ASM TYPES
+#define INVALID -1;
+#define GLOBAL 0; //Pause, Unpause, Save, Load, Inventory, Score, Print, NoPrint
+
+#define COMMAND 	1;
+#define ACTION 		1; //Same as COMMAND
+#define VERB 		2;
+#define NOUN 		3;
+#define OBJECT		3; //Same as NOUN
+#define ADJECTIVE 	4;
+#define NPC 		5;
+#define ENEMY 		6;
+#define SPEAK 		7;
+#define CONJUNCTION 	8;
+#define PREPOSITION 	9;
+#define ARTICLE		10;
+
+//Parse types, based on number of commands issued
+//command noun, command adjective noun
+//command article...this probably won;t work. 
+#define PARSE_COMMAND 1;
+#define PARSE_
+
+/*	Do we want to allow constructing very complex chains, such as OLD KEY as two
+	compinents, or do we want to hardcode OLD KEY or HIDEOUS TROLL as one string?
+
+	Clearly, the latter is easier. 
+*/
+
+//ASM DEFINE - List priority ( length ) ( alpha ) -- or ( length ) ( common ) ?
+
+/* 	We sort this based on the number of characters, and then alphabetic, so that we speed up
+	parse string compares. Smaller strings compare and resolve faster, and characters 
+	are checked in sequence, so the sooner it finds a match, the sooner it returns,
+	similar to a short-circuit, but code-controlled.
+*/
+
+#define D	    1;
+#define E	    2;
+#define I	    3;
+#define L	    4;
+#define N	    5;
+#define S	    6;
+#define U	    7;
+#define W	    8;
+
+#define GO	    9;
+#define NE	    10;
+#define NW	    11;
+#define SE	    12;
+#define SW	    13;
+#define UP	    14;
+
+#define ASK	    15;
+#define DIG	    16;
+#define EAT	    17;
+#define GET 	    18;
+#define PUT	    19;
+#define SAY	    20;
+#define TIE	    21;
+#define USE 	    22;
+#define RUN	    23;
+
+#define DOWN 	    24;
+#define DROP	    25;
+#define EAST	    26;
+#define FILL	    27;
+#define GIVE	    28;
+#define HELP	    29;
+#define KILL 	    30;
+#define LOAD	    31;
+#define LOCK	    32;
+#define LOOK	    33;
+#define OPEN	    34;
+#define PICK	    35;
+#define QUIT	    36;
+#define SAVE	    37;
+#define SWIM	    38;
+#define TAKE 	    39;
+#define TURN	    40;
+#define WAIT 	    41;
+#define WEAR	    42;
+#define WEST 	    43;
+
+#define BREAK	    44;
+#define CARRY 	    45;
+#define CLIMB	    46;
+#define CLOSE	    47;
+#define CROSS	    48;
+#define DRINK	    49;
+#define EMPTY	    50;
+#define ENTER	    51;
+#define EQUIP 	    52;
+#define NORTH	    53;
+#define PAUSE	    54;	
+#define PRINT 	    55; //output every instruction to allegro.log
+#define SCORE	    56;
+#define SHOOT	    57;
+#define SOUTH	    58;
+#define THROW	    59;
+#define UNTIE	    60;
+
+#define ATTACK	    61;
+#define FOLLOW	    62;
+#define UNLOCK	    63;
+
+#define EXAMINE     64;
+#define NOPRINT     65; //stop sending instructions to allegro.log
+
+#define INVENTORY   66;
+#define NORTHEAST   67;
+#define NORTHWEST   68;
+#define SOUTHEAST   69;
+#define SOUTHWEST   70;
+
+#define DICTIONARY  71;
+
+#define MAXCOMMANDS 72;
+
+
+//! These need to become defines.
+const int SFX_KEYPRESS = 58;			
+
+const int LINKTILEOFFSET = -261; const int KEY_DELAY = 65; //Trying this as 6.5 and timer changes as 1.0, using 65 and 10
+const int LINE_LENGTH = 54; const int BUFFER_LENGTH = 55;
+//int b1[55]; int b2[55]; int b3[55]; int b4[55]; int b5[55];
+//int b6[55]; int b7[55]; int b8[55]; int b9[55]; int b10[55];
+//int bufptr;
+
+const int CHAR_WIDTH = 4;
+const int CURSOR_WIDTH = 4;
+const int CURSOR_POINT_CHAR = 62;
+const int CURSOR_Y_OFFSET = 4;
+const int CURSOR_X_OFFSET = 4;
+const int BUFFER_OUTPUT_X = 0;
+const int BUFFER_OUTPUT_Y = 0;
+const int CURSOR_BLINK_DUR = 70;
+const int CURSOR_Y_OFS = 1;
+
+
+int matchaction(int command){
+	
+	
+}
+
+//Returns how many total WORDS are in one instruction set.
+int numinstructions(int _buffer){
+	///count the number of spaces in the buffer. THe number of total instructions
+	///equals the number  of spaces, plus onwe
+	int spc; int nextchar; bool trailspacedone;
+	INSTRUCTIONS_SIZE = SizeOfArray(_buffer);
+	for ( int q = SizeOfArray(_buffer); q >= 0; q-- ) {
+		//don't count trailing spaces, or contiguous spaces.
+		if ( _buffer[q] == CHAR_SPACE ) {
+			if ( __buffer[q-1] !isLetter() && !trailspacedone ) { 
+				trailspacedone = false; continue;
+			}
+			else if ( __buffer[q-1] isLetter() && !trailspacedone ) { 
+				trailspacedone = true; 
+				spc++; continue;
+			}
+			else if ( __buffer[q-1] !isLetter() && trailspacedone ) continue;
+			else if ( __buffer[q-1] isLetter() && trailspacedone ) {
+				spc++;
+			}
+		}
+	}
+	//WORDCOUNT[0] = spc+1; //store the total number of words.
+	return spc+1;
+}
+
+
+//Stores the present commands in the text parsing buffer onto the heap
+void GetInstructions(int _buffer){
+	int wordcount = numinstructions(_buffer);
+	
+	
+	//int WORDS[5]={WORD_1, WORD_2, WORD_3, WORD4, WORD_5}; //holds the array pointers.
+	
+	
+	//This time, read the array forward.
+	int spc; int nextchar; bool trailspacedone; int curword = 0;
+	
+	for ( ram[RAM_q] = 0; ram[RAM_q] < INSTRUCTIONS_SIZE; ram[RAM_q]++ ) {
+		//don't count trailing spaces, or contiguous spaces.
+		if ( curword < wordcount ) {
+			//Put the command in CURWORD[]
+			do { 
+				int ptr = CURWORD; //WORDS[curword];
+				ptr[q] = _buffer[q];
+			}
+			while ( _buffer[q] != CHAR_SPACE && spc < wordcount );
+			//curword++;
+			//! Determine what instruction to use
+			int command = StringToLabel(WORD); //! This function doe snot yet exist. 
+			//! Put the word on the heap
+			HEAP[HeapPounter] = command;
+			HeapPointer++; //The heap pointer +1 will be the number of instructions on the heap.
+			
+		}
+	}
+		
+}
+
+//The current article and preposition. 
+int ARTICLE; int PREPOSITION; 
+
+int AdvanceTurn; //Should we advance a turn after executing the stack?
+
+void HeapToStack(){
+	for ( int q = 0; q < HeapPointer; q++ ) {
+		if ( !IsPreposition(HEAP[q]) && !IsConjunction(HEAP[q]) & !IsArticle(HEAP[q]) ) STACK[q] = HEAP[q]; 
+		if ( IsPreposition(HEAP[q]) ) PREPOSITION = HEAP[q];
+		if ( IsArticle(HEAP[q] ) ARTICLE = HEAP[q].
+		if ( IsConjunction(HEAP[q] ) {
+			
+			//pop the instructions off thew heap...
+			int tempheap[32]; int w;
+			//copy the remaining heap into an array
+			for ( ; w < 32-q; q++ ) tempheap[w] = HEAP[q];
+			//clear the heap
+			for ( w = 0; w < 32; e++ ) HEAP[w] = 0;
+			//copy the temp back to the heap.
+			for ( w = 0; w < 32; w++ ) HEAP[w] = tempheap[w];
+			AdvanceTurn = 0; //Do not advance a turn after executing the stack. 
+			break;
+		}
+		AdvanceTurn = 1; //After executing the stack, advance a turn. 
+	}
+	//Execute the stack.
+}
+
+//int WORDS[4];
+//holds the indices of each word?
+
+#define MAX_WORDS 18; //Max words per instruction. SAY GANDALF GIVE OLD KEY
+//Store each word in these buffers.
+int WORD_1[18];
+int WORD_2[18];
+int WORD_3[18];
+int WORD_4[18];
+int WORD_5[18];
+int WordCount; //how many words this time, and the index at which they occur. 
+int INSTRUCTIONS_SIZE; //Used by functions to minimise loop wastage.
+
+
+
+//Add instructions to the 'stack', starting with a COMMAND, then its variables.
+void StringToCommand(){
+	int counter; 
+	int buf[3] = "0"; int  buf2[2];
+	//one string per command
+	
+	//command lengths
+	//this speeds up matching the string to a command by finding one of the same length
+	int commandlengths[]={5, 4, 4, 5, 2, 4, 4, 4, 4, 4, 3, 3, 6, 3}; //list the length of each command in order.
+	//match the 
+	
+	//find the command
+	//if we encounter a space, increment the counter. 
+	int legalcommands[]="
+		01NORTH
+		2EAST
+		3WEST
+		4SOUTH
+		5UP
+		6DOWN
+		7LOOK
+		8TAKE
+		9WAIT
+		10ASK
+		11SAY
+		12ATTACK
+		13USE
+	";
+	//We then check the length of the command
+	
+	/* We probably don't need a switch for this. Just do:
+	*/
+	
+	//Do we want a switch for this?
+	//switch (INSTRUCTIONS_SIZE){
+	//	case 1:
+			//COMMAND only, no verb, no say.
+	
+	//Parse WORD_1
+	
+	int curWord = 0;
+	int WORDS[5]={WORD_1, WORD_2, WORD_3, WORD4, WORD_5}; //holds the array pointers.
+	
+	//First, the command
+	strcpy(WORDS[curWord], temp_command); //store the present word
+	
+	for ( int q = 0; q < SizeOfArray(commandlengths); q++ ) {
+		bool match;
+		if ( commandlengths[q] == strlen(temp_command) {
+			//if the position of q is < 10, append a leading 0
+			if ( q < 10 ) {
+				itoa(q,buf2);
+				strcat(buf2, but);
+			}
+			//otherwise, just store it
+			itoa(q, buf); //overwrite the temp buffer.
+			
+			//find that number in legal commands
+			for ( int w = 0; 2 < SizeOfArraylegalcommands; w++ ){
+				
+				//! stringparser finds a matching string, and returns its position?
+					
+				//if ( stringparser(buf) ) return q; //if the string matches
+				
+				//This is the inverse of the old string parser, so instead, let's do this
+				
+				int bufcompare[18];
+				stringparser(q, bufcompare); //copy instruction q into the compare buffer
+				for ( int e = 0; e < strlen(bufcompare); e++ ) {
+					//compare each index
+					if ( temp_command[e] != bufcompare[3] ) {
+						//failed to compare
+						match = false;
+						break;
+					}
+					match = true; //we found the match.
+					//return atoi(buf); //return the command ID.
+					
+					
+					
+					//! no, we want to store the commcomamnd, to parse,
+					//! and add variables to it.
+					stack[curWord] = atoi(buf);
+					break;
+				}
+				
+				//the parsed string, thast is its command number.
+				//so, return it.
+				 
+			}
+			break; //if we fail, we fall through.
+		}
+		if ( !match ) stack[curWord] = INVALID; //return INVALID; //invalid command
+		//!! no, put INVALID into the stack.
+	}
+	curWord++; //Increase the SP.
+	
+	int legal_variables="
+	
+	
+	
+	
+	
+	";
+	
+	//Then, its VARIABLES, if any. 
+	for ( int q = 1; q < WordCount; q++ ) {
+		strcpy(WORDS[curWord], temp_command); //store the present word
+	
+		for ( int q = 0; q < SizeOfArray(commandlengths); q++ ) {
+			bool match;
+			if ( commandlengths[q] == strlen(temp_command) {
+				//if the position of q is < 10, append a leading 0
+				if ( q < 10 ) {
+					itoa(q,buf2);
+					strcat(buf2, but);
+				}
+				//otherwise, just store it
+				itoa(q, buf); //overwrite the temp buffer.
+				
+				//find that number in legal commands
+				for ( int w = 0; 2 < SizeOfArraylegalcommands; w++ ){
+					
+					//! stringparser finds a matching string, and returns its position?
+						
+					//if ( stringparser(buf) ) return q; //if the string matches
+					
+					//This is the inverse of the old string parser, so instead, let's do this
+					
+					int bufcompare[18];
+					stringparser(q, bufcompare); //copy instruction q into the compare buffer
+					for ( int e = 0; e < strlen(bufcompare); e++ ) {
+						//compare each index
+						if ( temp_command[e] != bufcompare[3] ) {
+							//failed to compare
+							match = false;
+							break;
+						}
+						match = true; //we found the match.
+						//return atoi(buf); //return the command ID.
+						
+						
+						
+						//! no, we want to store the commcomamnd, to parse,
+						//! and add variables to it.
+						stack[curWord] = atoi(buf);
+						break;
+					}
+					
+					//the parsed string, thast is its command number.
+					//so, return it.
+					 
+				}
+				break; //if we fail, we fall through.
+			}
+			if ( !match ) stack[curWord] = INVALID; //return INVALID; //invalid command
+			//!! no, put INVALID into the stack.
+		}
+		currWord++; //Increase the SP.
+	}
+}
+		
+	
+void doaction(int action){
+	//get actions off the stack, and pop them
+	int tempheap[5]; int command;
+	for ( int q = 0; q <= MAX_WORDS; q++ ){
+		hempheap[q] = stack[q];
+		stack[q] = 0; //popped
+	}
+	
+	switch(NUMWORDS){
+		case 1:
+			
+			//actions only
+			command = tempheap[0];
+			
+			switch(command){
+				
+				
+				
+			}
+	
+		
+		case 2:
+			
+			//action and noun
+			int command = tempstack[0];
+			int adjective = tempstack[1];
+			int noun = tempstack[2];
+		
+			switch(noun){
+				//find the object by checking for NOUN on screen
+				case 1:
+					switch(command){
+						
+						case 1:
+							//perform action on noun
+					}
+				}
+			}
+		
+		case 3: //command, and two words
+			//can be 'command adjective noun'
+			int command = tempstack[0];
+			int adjective = tempstack[1];
+			int noun = tempstack[2];
+			//append adjective to ADJECTIVE_NOUN[36]
+						//and append a space
+							//append the noun to the ADCECTIVE_NOUN string
+			switch(noun){
+				
+				//!!!!!!!
+				//! it might improve performance to do the adjective and noun first, and perform the command
+				//case, on those. 
+				
+				
+					//determine of the noun is an enemy, or an item.
+				case 1:
+				case 2:
+				case 3: //items
+					//item cases go here
+					//check for items matchint the ADJECTIVE_NOUN string by name
+					//if they exist, perform the action on them, if possible
+				
+					//if they are not on screen, but are in inventory, perform the action.
+				switch(action){
+					case TAKE:
+						break;
+					case GIVE;
+						break;
+					case USE:
+						break;
+					case EQUIP:
+						break;
+					default: 
+						SyntaxErr();
+						break;
+					
+					//Perform the action on the target.
+				}
+				break;
+				
+				//enemies
+				case TROLL:
+				case GOBLIN:
+				case GOLLUM:
+				case SMAUG:
+					switch(action){
+						case ATTACK:
+							break;
+						default:
+							SyntaxErr();
+							break;
+					//Perform the action on the target.
+				}
+				break;
+					//Scan the screen for an npc that matches the string ADJECTIVE_NOUN
+					
+				case OTHER: 
+					SyntaxErr();
+					break;
+				/*
+				switch(adjective){
+					//narrow the field? Do we ever need to do this?
+					
+					case 1:
+						int noun = tempstack[2];
+						//append adjective to ADJECTIVE_NOUN[36]
+						//and append a space
+						switch(noun){
+							//append the noun to the ADCECTIVE_NOUN string
+							case 1:
+								//item cases go here
+								//check for items matchint the ADJECTIVE_NOUN string by name
+								//if they exist, perform the action on them, if possible
+							
+								//if they are not on screen, but are in inventory, perform the action.
+						}
+				}
+				
+				switch(action){
+					
+					Perform the action on the target.
+				}
+				*/
+				default:
+					SyntaxErr();
+					break;
+				
+				
+			}
+			
+		case 4: //command and three words
+			/* this is where things become quite complex, as this includes the SAY 
+				instruction. In fact... I believe that 4 must alays be the say instruction.
+				//! Don;t forget 'CARRY'
+			*/
+			int person = tempstack[1];
+			int action = tempstack[2];
+			int noun = tempstack[3];
+		
+			switch (command){
+				case SAY:
+					//if the command isn't say, then we're doing something else, likely syntax err.,
+					case (person){
+						//check to see if the person is present.
+						case GANDALF:
+							if ( !isGandalfPresent() ) break;
+						case THORIN:
+							if ( !isThorinPresent() ) break;
+						case ELROND:
+							if ( !isElrondPresent() ) break;
+						case GOLLUM
+							if ( !isTHorinPresent() ) break;
+						case BEORN:
+							if ( !isBeornPresent() ) break;
+						case BARD:
+							if ( !isTHorinPresent() ) break;
+						case SMAUG
+							if ( !isTHorinPresent() ) break;
+						
+							//Each character gets this block, with legal actions and such.
+							switch(action){
+								
+								case GIVE:
+									switch(noun){
+										case 1:
+											//check objects in inventory
+											//if we give the object to a character, mark their inventory
+											//array and remove the object from our own
+											
+									}
+								case ATTACK;
+									switch(noun){
+										//check the screen for some creature that matches
+										//noun by name.
+										case 1:
+									}
+							}
+					}
+				default:
+					//not the say command, return an error.
+			}
+			
+		case 5: 
+			//say, person, action, adjective, noun
+		//! Don;t forget 'CARRY'
+		switch (command){
+				case SAY:
+					int person = tempstack[1];
+					case (person){
+						case 1:
+							int action = tempstack[2];
+							switch(action){
+								int adj = tempstack[3];
+								case 1:
+									switch(adj){
+										int noun = tempstack[4];
+										
+										case 1:
+											switch(noun){
+												case 1:
+											}
+											
+									}
+							}
+					}
+				default:
+					//not the say command, return an error.
+			}
+			
+	switch(action){
+		
+		case :
+			
+		default: 
+			break;
+	}
+}
+
+int GetCommandID(){
+	//format
+	int FirstLetter = WORD[0];
+	switch(WordLength){
+		//check only useful words
+		case 1: 
+			case 'E':
+				if (stringcompare(WORD, "E") return E;
+			case 'I':
+				if (stringcompare(WORD, "I") return I;
+			
+			case 
+		case 2:
+			switch(FirstLetter){
+				//check only instructions that begin with the appropriate letter. 
+				case 'G':
+					if (stringcompare(WORD, "GO") return GO;
+	//if (stringcompare(WORD, "COMMAND") return COMMAND;
+}
+
+//order the instructions so that when we act on them, we use a simple ordering system to do it
+bool IsCommand(int c){} //Return if the instruction is a command
+bool IsNoun(int c){}
+bool IsAdjective(int c){}
+bool IsNPC(int c){}
+bool IsEnemy(int c){}
+
+//Store the adjectives and use these to try matching them with the nouns and npcs prvided in the instructions. 
+int CurAdjective[18]; int CurAdjective1[18]; int CurAdjective2[18]; int CurAdjective3[18]; int CurAdjective4[18];
+
+int CurNoun[18]; int CurNPC[18]; 
+
+//Try to match the adjective and noun or enemy to a valid pair on the screen.
+int MatchDescription(){
+}
+
+/* Check how many chars are in the present WORD. Try to determine the type of instruction (command, noun, and such if possible).
+	Make a loop var, and parse these arrays.
+	Find a starting point by iterating LabelLengths with numbers matching the length of WORD.
+	store the position in a new var
+	continue parsing umtil we reach the first index that is not the correct length
+	once we reach a position with the same length, check LABELS
+	copy the current position + WORD length to a buffer.
+	Compare the string literal to the buffer.
+	If it matches, return LabelID[iteration index]. 
+
+	We only need to check the first letter of an instruction when comparing it, before moving on. 
+	The comparison function should return false as soon as its internal iterator reaches a letter doesn;t match. 
+*/
+
+//Determines if two strings are the same. Returns false as soon as it reaches a character that does not match. 
+bool MatchLabel(int buffer, int string, int length){
+	for ( int q = 0; q <= length; q++ ) 
+		if ( buffer[q] != string[q] ) return false;
+	return true;
+}
+
+int LabelIDs[]= {
+	//Commands
+	0,
+	1, 2, 3, 4, 5, 6, 7, 8,
+	9, 10, 11, 12, 13, 14,
+	15,16,17,18,19,20,21,22,23,
+	24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,
+	44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,
+	61,62,63,
+	64,65,
+	66,67,68,69,70,
+	71,
+	
+}
+
+int Labels[]="
+none,
+D E I L N S U W 
+GO NE NW SE SW UP 
+ASK DIG EAT GET PUT SAY TIE USE RUN 
+DOWN DROP EAST FILL GIVE HELP KILL LOAD LOCK LOOK OPEN PICK QUIT SAVE SWIM TAKE TURN WAIT WEST WEAR 
+BREAK CARRY CLIMB CLOSE CROSS DRINK EMPTY ENTER EQUIP NORTH PAUSE PRINT SCORE SHOOT SOUTH THROW UNTIE 
+ATTACK FOLLOW UNLOCK 
+EXAMINE NOPRINT 
+INVENTORY NORTHEAST NORTHWEST SOUTHEAST SOUTHWEST 
+DICTIONARY 
+
+
+
+
+"
+
+int LabelLengths={
+	0,
+1, 1, 1, 1, 1, 1, 1, 1,
+	2,2,2,2,2,2,
+	3,3,3,3,3,3,3,3,3,
+	4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+	5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+	6,6,6,
+	7,7,
+	8,8,8,8,8,
+	9,
+	
+	
+	
+	
+	
+	
+	
+}
+
+//ASM VARIABLES
+
+//NOUNS
+
+//! Do we want these defined in sets? I think they probably need a unique instruction ID per variable, not 1-N per set. 
+
+/* Any noun that can also be written as another noun, should have the same value. For example, if you want
+	to allow the player to say either TAKE THE GOLD or TAKE THE TREASURE, make both GOLD and TREASURE the same
+	instruction ID. 
+
+	I have intentionally placed large gaps in the instruction table to allow expanding it later, while maintaining 
+	efficiency b y allowing new additions to fall between existing variables, based on number of characters in their
+	label, and alphabetic sorting. 
+*/
+
+//! UGH, NO, THEY NEED TO BE NUMBERED IN ORDER TO MATCH THE ARRAY POSITIONS. 
+
+
+//onjunctions
+#define AND	200;
+#define THEN	201;
+
+//Articles
+#define A	210;
+#define THE 	220; //an article, but it is also ignored
+
+//Items
+#define AXE	300;
+#define KEY 	310
+#define MAP 	320;
+#define BOX	330;
+#define ROD	340;
+
+#define FOOD 	500;
+#define GOLD 	520;
+#define RING	530;
+#define ROPE 	540;
+#define WINE 	550;
+
+#define CHEST 	700;
+#define LUNCH 	710;
+#define STAFF	720;
+#define SWORD 	730;
+#define TORCH 	740;
+
+#define BARREL 	900;
+#define DAGGER 	910;
+
+#define TREASURE 1100;
+
+
+//NPCs (person)
+#define ME 	1300;  //Because characters can be treated like items, for the CARRY command, they need a special case. 
+
+#define ELF 	1500; //WOOD ELF
+#define BARD 	1510;
+#define WOOD 	1520; //WOOD ELF
+
+#define BEORN 	1700;
+
+#define BUTLER 	1900;
+#define ELROND 	1910;
+#define THORIN 	1920;
+
+#define GANDALF 2100;
+
+//Enemies
+#define EYES 	2300; //PALE BULBOUS EYES
+#define WARG 	2310;
+9
+#define SMAUG 	2500;
+#define TROLL 	2510;
+
+#define DRAGON 	2700; //should be the same as SMAUG in context, but also needs to be an adjective so that THE DRAGON SMAUG is legal. 
+#define GOBLIN 	2710;
+#define GOLLUM 	2720;
+
+
+//ADJECTIVES and ADVERBS
+#define OLD 	2900;
+
+#define PALE	3100;
+#define UGLY 	3110;
+
+#define LARGE 	3300;
+#define SHORT 	3310;
+#define SHINY 	3320;
+
+#define DRAGON 	3500;
+#define GENTLY	3510;
+#define GOLDEN 	3520;
+#define SOFTLY	3530;
+	
+#define BULBOUS	3700;
+#define CURIOUS 3710;
+#define HIDEOUS 3720;
+#define MAGICAL 3730;
+#define QUICKLY 3740;
+#define STRANGE 3750;
+#define UNUSUAL 3760;
+
+#define CAREFULLY 3900;
+#define VICIOUSLY 3910;
+
+
+//Prepositions 
+//! If we scan a perposition, just ignore it. ATTACK GOBLIN WITH THE SHORT SWORD == ATACK GOBLIN SHORT SWORD
+//! Prepositions exist only to facilitate natural language, not to be parsd. !!!
+//! We **DO** need to store the ACTIVE PREPOSITION somewhere, so that our outut story string USES it to 
+//! describe the action.
+//! if the player says: PUT ROPE IN BARREL
+//! We need to respond: THE ROPE IS **IN** THE BARREL, or something of that sort.
+
+#define AT 	4100;
+#define IN	4110;
+#define OF 	4120;
+#define ON	4130;
+#define TO	4140;
+
+#define OFF	4200;
+#define OUT	4210;
+
+#define FROM	4500;
+#define INTO	4510;
+#define WITH	4520;
+
+#define ACROSS	4700;
+	
+#define THROUGH 4900;
+
+//UP
+
+//Special
+int navi[]="HEY LISTEN";
+
+
+
+//Constructs
+//ACTION
+//ACTION NOUN
+//ACTION VERB NOUN
+//SAY NPC SPEAK
+
+/*
+
+
+GAME DICTIONARY
+
+Movements:
+DOWN D, EAST E, NORTH N, NORTHEAST NE, NORTHWEST NW, SOUTH S,
+SOUTHEAST SE, SOUTHWEST SW, UP U, WEST W.
+
+Special verbs:
+EXAMINE, HELP, INVENTORY I, LOAD, LOOK L, NOPRINT, PAUSE, PRINT,
+QUIT, SAVE, SCORE.
+DICTIONARY
+
+Action verbs:
+BREAK, CLIMB, CLOSE, CROSS, DIG, DROP, DRINK, EMPTY, ENTER, EAT,
+FILL, FOLLOW, GIVE, GO, KILL, LOCK, PICK, PUT, OPEN, RUN, SAY,
+SHOOT, SWIM, TIE, TAKE, THROW, TURN, UNLOCK, UNTIE, WEAR.
+
+Prepositions:
+ACROSS, AT, FROM, IN, INTO, ON, OUT, OFF, THROUGH, TO, UP, WITH
+
+Adverbs:
+CAREFULLY, GENTLY, QUICKLY, SOFTLY, VICIOUSLY
+
+*/
+
+//SPEAK 
+//ONE WORD
+
+//TWO WORDS
+//"GIVE" item
+	//item NOUN
+	//item VERB NOUN
+//"CARRY" item, person
+	//item NOUN, person
+	//item VERB NOUN, person
+//"ATTACK"  npc
+	//attack, NPC
+	//attack VERB NPC
+
+
+
+bool Parse(int inputBuffer){
+	int 
+	
+	
+	
+/*
+	switch (strlen(temp_command)){
+		int buf[3] = "0"; int  buf2[2]; 
+		
+		case 3:
+			
+			//check commands with a length of 3...
+			for ( int q = 0; q < SizeOfArray(commandlengths); q++ ) {
+				if ( commandlengths[q] == 3 ) {
+					//if the position of q is < 10, append a leading 0
+					if ( q < 10 ) {
+						itoa(q,buf2);
+						strcat(buf2, but);
+					}
+					//otherwise, just store it
+					itoa(q, buf); //overwrite the temp buffer.
+					
+					//find that number in legal commands
+					for ( int w = 0; 2 < SizeOfArraylegalcommands; w++ ){
+						if ( stringparser(buf) ) return q; //if the string matches
+							//the parsed string, thast is its command number.
+						//so, return it.
+					}
+					break; //if we fail, we fall through.
+				}
+				break; //fall though
+			}
+		case 4:
+			//check commands with a length of 3.
+			for ( int q = 0; q < SizeOfArray(commandlengths); q++ ) {
+				if ( commandlengths[q] == 4 ) {
+					//if the position of q is < 10, append a leading 0
+					if ( q < 10 ) {
+						itoa(q,buf2);
+						strcat(buf2, but);
+					}
+					//otherwise, just store it
+					itoa(q, buf); //overwrite the temp buffer.
+					
+					//find that number in legal commands
+					for ( int w = 0; 2 < SizeOfArraylegalcommands; w++ ){
+						if ( stringparser(buf) ) return q; //if the string matches
+							//the parsed string, thast is its command number.
+						//so, return it.
+					}
+					break; //if we fail, we fall through.
+				}
+				break; //fall though
+			}
+			
+		case 5:
+			//check commands with a length of 3.
+			for ( int q = 0; q < SizeOfArray(commandlengths); q++ ) {
+				if ( commandlengths[q] == 4 ) {
+					//if the position of q is < 10, append a leading 0
+					if ( q < 10 ) {
+						itoa(q,buf2);
+						strcat(buf2, but);
+					}
+					//otherwise, just store it
+					itoa(q, buf); //overwrite the temp buffer.
+					
+					//find that number in legal commands
+					for ( int w = 0; 2 < SizeOfArraylegalcommands; w++ ){
+						if ( stringparser(buf) ) return q; //if the string matches
+							//the parsed string, thast is its command number.
+						//so, return it.
+					}
+					break; //if we fail, we fall through.
+				}
+				break; //fall though
+			}
+			
+		case 6:
+			
+		default:
+			//invalid command.
+	}
+	*/
+
+//Global script for text buffer
+//preliminary
+
+
+global script a{
+	void run(){
+//int buffers[]={b1, b2, b3, b4, b5, b6, b7, b8, b9, b10};
+	//bufptr = buffers;
+    //int curbuffer = bufptr[q];
+		int buffersize = SizeOfArray(buffer);
+		Link->Y = 90;
+		//Game->Cheat = 4;
+		while(true){
+			//Link->PressMap = false; 
+			Link->InputMap = false;
+			if ( timer ) cantype = false;
+			if ( !timer ) cantype = true;
+			if ( Game->KeyPress[115] || Game->KeyPress[116] ) ShiftKey = true;
+			else ShiftKey = false;
+			if ( timer > 0 ) timer -10;
+			if ( timer <= 0 ) timer = 0;
+			if ( cursorblink > 0 ) cursorblink--;
+			if ( cursorblink <= 0 ) cursorblink = 100;
+			if ( cantype ) {
+				//if we are not over the arbitrary buffer limit
+				if ( ram[RAM_q] < buffersize ) { 
+					//int keystroke;
+					for ( int qq = 1; qq <= KEY_COMMAND; q++ ) {
+						if ( qq < KEY_DEL ) {
+							if ( ( buffer[q] = CheckKeyToChar(qq,true) ) != CHAR_BACKSPC ) {
+								if ( buffer[q] == CHAR_TAB ) {
+									for ( int w = 0; w < 4; w++ ) { buffer[q] = CHAR_SPACE; CursorAdv(RAM_q); temp_q++; if ( SFX_KEYPRESS > 0 ) Game->PlaySound(SFX_KEYPRESS);}
+									timer = KEY_DELAY;
+								}
+								else { 
+									CursorAdv(RAM_q); temp_q++; 
+									if ( SFX_KEYPRESS > 0 ) Game->PlaySound(SFX_KEYPRESS);
+									timer = KEY_DELAY;
+								}
+								break;
+							}
+						}
+						if ( ( buffer[q] = CheckKeyToChar(qq,true) ) == CHAR_BACKSPC ) {
+							buffer[q] = 0; CursorRev(RAM_q); temp_q--; 
+							if ( SFX_KEYPRESS > 0 ) Game->PlaySound(SFX_KEYPRESS);
+							timer = KEY_DELAY;
+							break;
+						}
+						if ( ( buffer[q] = CheckKeyToChar(qq,true) ) == CHAR_DEL ) {
+							for ( int w = qq; w >=0; w-- ) buffer[w] = 0;
+							for ( int w = qq; w >=0; w-- ) bufferoverlay[w] = 0;
+							ram[RAM_q] = 0; 
+							if ( SFX_CLEARBUFFER > 0 ) Game->PlaySound(SFX_CLEARBUFFER);
+							timer = KEY_DELAY;
+							break;
+						}
+						if ( ( buffer[q] = CheckKeyToChar(qq,true) ) == CHAR_HOME ) { 
+							//used for tilde and grave, as that key is used by the ZC UI.
+							if ( (Game->KeyPress[KEY_LSHIFT] || Game->KeyPress[KEY_RSHIFT])){
+								buffer[q] = '~'; CursorAdv(RAM_q); temp_q++; if ( SFX_KEYPRESS > 0 ) Game->PlaySound(SFX_KEYPRESS);
+							}
+							else { 
+								buffer[q] = '`'; CursorAdv(RAM_q); temp_q++; if ( SFX_KEYPRESS > 0 ) Game->PlaySound(SFX_KEYPRESS);
+							}
+							timer = KEY_DELAY; 
+						}
+						if ( ( buffer[q] = CheckKeyToChar(qq,true) ) == CHAR_ARROW_U ) {
+							Link->PressUp = false; Link->InputUp = false;
+							LeapInstruction("UP");
+							break;
+						}
+						if ( ( buffer[q] = CheckKeyToChar(qq,true) ) == CHAR_ARROW_D ) {
+							Link->PressDown = false; Link->InputDown = false;
+							LeapInstruction("DOWN");
+							break;
+						}
+						if ( ( buffer[q] = CheckKeyToChar(qq,true) ) == CHAR_ARROW_L ) {
+							Link->PressLeft = false; Link->InputLeft = false;
+							LeapInstruction("LEFT");
+							break;
+						}
+						if ( ( buffer[q] = CheckKeyToChar(qq,true) ) == CHAR_ARROW_R ) {
+							Link->PressRight = false; Link->InputRight = false;
+							LeapInstruction("RIGHT");
+							break;
+						}
+						bufferoverlay[q] = '_'; //Cursor
+					}
+				}
+			}
+
+			Screen->DrawString(6,0,0,2, 0x01, -1, 0, GetBuffer(),128);
+			//draw buffer overlay, with blink
+	
+			//We can replace the null char in the loop with something that can be a cursor. 
+			//Perhaps something greyed out or translucent, like an underscore, and make it blink?
+			if ( cursorblink > CURSOR_BLINK_DUR ) {
+				Screen->DrawString(6,0,0+CURSOR_Y_OFS,2, 0x01, -1, 0, GetCursorOverlay(),128); //cursor
+				/*
+				Screen->Line(6, 
+					0+0+(q*CHAR_WIDTH), 
+					//BUFFER_OUTPUT_X+CURSOR_X_OFFSET+(q*CHAR_WIDTH), 
+					//BUFFER_OUTPUT_Y+CURSOR_Y_OFFSET,
+					6,
+					0+0+(q*CHAR_WIDTH)+4,
+					//BUFFER_OUTPUT_X+CURSOR_X_OFFSET+(q*CHAR_WIDTH) + CURSOR_WIDTH,
+					6, 
+					//BUFFER_OUTPUT_Y+CURSOR_Y_OFFSET,
+					0x01, 1, 0, 0, 0, 128);	
+				*/
+			}	
+			Waitdraw(); Waitframe();
+		}
+	}
+}	
+int GetBuffer(){ 
+    //int ptr = bufptr;
+    //return bufptr[buffer];
+    return buffer;
+    
+}		
+
+int GetCursorOverlay(){
+	return bufferoverlay;
+}
+
+//CursorAdv(RAM_q);
+void CursorAdv(int n){
+	bufferoverlay[ram[n]] = CHAR_SPACE;
+	ram[n]++;
+	bufferoverlay[ram[n]] = '_'; //Cursor.
+}
+
+//CursorRev(RAM_q);
+void CursorRev(int n){
+	bufferoverlay[ram[n]] = 0;
+	ram[n]--;
+	bufferoverlay[ram[n]] = '_'; //Cursor.
+}
+
+void GetNextWord(int word, int output){}
